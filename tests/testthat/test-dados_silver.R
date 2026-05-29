@@ -291,7 +291,7 @@ run_test_dados_silver <- function(dados_silver) {
       )
     )
 
-    trade_data <- out$brokerage_data$trade_data
+    trade_data <- out$trade_data
 
     testthat::expect_true("fund_name" %in% names(trade_data))
     testthat::expect_true("cvm_code_type" %in% names(trade_data))
