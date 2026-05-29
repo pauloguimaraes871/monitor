@@ -1,0 +1,12 @@
+Loading data for dates: 2026-04-20, 2026-04-22, 2026-04-23, 2026-04-24, 2026-04-27, 2026-04-28, 2026-04-29, 2026-04-30
+Downloading fund returns and adjusted prices from 2026-04-20 to 2026-04-30.
+Network error on attempt 1.
+HTTP network-error; backing off 11.1s.
+Network error on attempt 2.
+HTTP network-error; backing off 23.2s.
+Network error on attempt 3.
+HTTP network-error; backing off 44.6s.
+Network error on attempt 4.
+HTTP network-error; backing off 83.2s.
+Network error on attempt 5.
+HTTP network-error; backing off 120.7s.

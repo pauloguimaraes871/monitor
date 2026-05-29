@@ -1,0 +1,11 @@
+Loading data for dates: 2026-04-20, 2026-04-22, 2026-04-23, 2026-04-24, 2026-04-27, 2026-04-28, 2026-04-29, 2026-04-30
+Downloading fund returns and adjusted prices from 2026-04-20 to 2026-04-30.
+Valid cached file found for 2026-04-20. Skipping download.
+Valid cached file found for 2026-04-22. Skipping download.
+Valid cached file found for 2026-04-23. Skipping download.
+Valid cached file found for 2026-04-24. Skipping download.
+Valid cached file found for 2026-04-27. Skipping download.
+Valid cached file found for 2026-04-28. Skipping download.
+Valid cached file found for 2026-04-29. Skipping download.
+Valid cached file found for 2026-04-30. Skipping download.
+Brokerage notes missing from cache for dates: 2026-04-20, 2026-04-22, 2026-04-23, 2026-04-24, 2026-04-27, 2026-04-28, 2026-04-29, 2026-04-30. Searching Outlook.

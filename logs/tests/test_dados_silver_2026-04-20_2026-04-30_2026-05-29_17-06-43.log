@@ -1,0 +1,42 @@
+[1mTest passed with 3 successes 🥇[22m.
+[1mTest passed with 3 successes 🌈[22m.
+[1mTest passed with 1 success 🌈[22m.
+[1mTest passed with 3 successes 😀[22m.
+[1mTest passed with 4 successes 😸[22m.
+[38;5;246m# A tibble: 1 × 5[39m
+  date       cvm_code_type n_distinct_non_na_ret_1d non_na_ret_1d_values
+  [3m[38;5;246m<date>[39m[23m     [3m[38;5;246m<chr>[39m[23m                            [3m[38;5;246m<int>[39m[23m [3m[38;5;246m<chr>[39m[23m               
+[38;5;250m1[39m 2026-03-02 h100_ON                              2 1.25, 1.3           
+[38;5;246m# ℹ 1 more variable: legacy_tickers <chr>[39m
+[1mTest passed with 1 success 😸[22m.
+[1mTest passed with 1 success 🥳[22m.
+[1mTest passed with 1 success 🥇[22m.
+[1mTest passed with 1 success 🎊[22m.
+[1mTest passed with 1 success 🥇[22m.
+[1mTest passed with 1 success 🎉[22m.
+[1mTest passed with 3 successes 🌈[22m.
+[1mTest passed with 5 successes 😀[22m.
+── [1m[33mFailure[39m: apply_catalog maps brokerage_data fund accounts and fractional tickers[22m ──
+Expected `"fund_name" %in% names(trade_data)` to be TRUE.
+Differences:
+`actual`:   [32mFALSE[39m
+`expected`: [32mTRUE[39m 
+
+── [1m[33mFailure[39m: apply_catalog maps brokerage_data fund accounts and fractional tickers[22m ──
+Expected `"cvm_code_type" %in% names(trade_data)` to be TRUE.
+Differences:
+`actual`:   [32mFALSE[39m
+`expected`: [32mTRUE[39m 
+
+── [1m[33mFailure[39m: apply_catalog maps brokerage_data fund accounts and fractional tickers[22m ──
+Expected `trade_data$fund_name` to equal "sicoob_acoes".
+Differences:
+alvo é NULL, atual é character
+── [1m[33mFailure[39m: apply_catalog maps brokerage_data fund accounts and fractional tickers[22m ──
+Expected `trade_data$legacy_ticker` to equal "OLD3".
+Differences:
+alvo é NULL, atual é character
+── [1m[33mFailure[39m: apply_catalog maps brokerage_data fund accounts and fractional tickers[22m ──
+Expected `trade_data$cvm_code_type` to equal "h100_ON".
+Differences:
+alvo é NULL, atual é character

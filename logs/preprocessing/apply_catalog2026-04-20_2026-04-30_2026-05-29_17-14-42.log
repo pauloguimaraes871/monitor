@@ -1,0 +1,3 @@
+The following tickers were added to the catalog: SAUD3, AZUL3
+Found 2 ticker(s) associated with multiple cvm_code_type values. To ensure stable mappings across monthly updates, the oldest available definition will be retained (priority: oldest_trading_date, first_trading_date, newest_trading_date, cvm_code_type). Affected tickers: BRST3, SJOS4
+Using catalog reference date for ticker mapping: 2026-04-20

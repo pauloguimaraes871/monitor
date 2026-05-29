@@ -1,0 +1,20 @@
+file: dados_bronze.rds
+file_size: 290202
+pin_hash: 3f4b82ca6f305ffb
+type: rds
+title: 'Object: dados_bronze | Stage: bronze | Source: rebalanceamento_comdinheiro
+  | Type: dados_bronze'
+description: 'Pinned on 2026-05-29. Commit: Deploying Bronze Data. Source: rebalanceamento_comdinheiro.
+  Type: dados_bronze'
+tags:
+- bronze
+- dados_bronze
+urls: ~
+created: 20260529T141403Z
+api_version: 1
+user:
+  object_name: dados_bronze
+  stage: bronze
+  commit_msg: Deploying Bronze Data
+  commit_hash: 365f8159b035611665dc5fa14d50e8ff
+  created_at: 2026-05-29 11:14:03.188889
