@@ -570,6 +570,8 @@ run_test_dados_silver <- function(dados_silver) {
   comdinheiro_data <- dados_silver$comdinheiro_data
   brokerage_data <- dados_silver$brokerage_data
   trade_data <- brokerage_data$trade_data
+  split_inplit_data <- dados_silver$split_inplit_data
+  port_iniciais <- dados_silver$port_iniciais
 
   testthat::test_that("dados_silver has expected top-level structure", {
     testthat::expect_true(is.list(dados_silver))
@@ -741,7 +743,81 @@ run_test_dados_silver <- function(dados_silver) {
     testthat::expect_true(max(comdinheiro_data$date) >= min(rebal_weights$date))
   })
 
-  invisible(TRUE)
+  testthat::test_that("cvm_code_type of split_inplit data is present in catalog and comdinheiro_data", {
+    split_cvm_types <- unique(split_inplit_data$cvm_code_type)
+    catalog_cvm_types <- unique(catalog$cvm_code_type)
+    comd_cvm_types <- unique(comdinheiro_data$cvm_code_type)
+
+    missing_in_catalog <- setdiff(split_cvm_types, catalog_cvm_types)
+    missing_in_comd <- setdiff(split_cvm_types, comd_cvm_types)
+
+    testthat::expect_equal(length(missing_in_catalog), 0L, info = paste("Missing in catalog:", paste(missing_in_catalog, collapse = ", ")))
+    testthat::expect_equal(length(missing_in_comd), 0L, info = paste("Missing in comdinheiro_data:", paste(missing_in_comd, collapse = ", ")))
+
+    ## Also check that each cvm_code_type+legacy_ticker combination is present
+    concatenated_ticker_cvm_code_type <- split_inplit_data %>%
+      dplyr::mutate(concatenated_ticker_cvm_code_type =
+                      paste0(cvm_code_type, "_", legacy_ticker)) %>%
+      dplyr::pull(concatenated_ticker_cvm_code_type)
+
+    catalog_combinations <- catalog %>%
+      dplyr::mutate(concatenated_ticker_cvm_code_type =
+                      paste0(cvm_code_type, "_", tickers)) %>%
+      dplyr::pull(concatenated_ticker_cvm_code_type)
+
+    comd_combinations <- comdinheiro_data %>%
+      dplyr::mutate(concatenated_ticker_cvm_code_type =
+                      paste0(cvm_code_type, "_", legacy_ticker)) %>%
+      dplyr::pull(concatenated_ticker_cvm_code_type)
+
+    missing_combinations <- setdiff(concatenated_ticker_cvm_code_type, catalog_combinations)
+    testthat::expect_equal(length(missing_combinations), 0L)
+
+    missing_combinations_comd <- setdiff(concatenated_ticker_cvm_code_type, comd_combinations)
+    testthat::expect_equal(length(missing_combinations_comd), 0L)
+
+
+  })
+
+  testthat::test_that("cvm_code_type of port_iniciais is present in catalog and comdinheiro_data", {
+
+    if (is.null(port_iniciais) || nrow(port_iniciais) == 0L) {
+      testthat::skip("port_iniciais is not available or empty, skipping cvm_code_type consistency test")
+    }
+
+    port_iniciais_cvm_types <- unique(port_iniciais$cvm_code_type)
+    catalog_cvm_types <- unique(catalog$cvm_code_type)
+    comd_cvm_types <- unique(comdinheiro_data$cvm_code_type)
+
+    missing_in_catalog <- setdiff(port_iniciais_cvm_types, catalog_cvm_types)
+    missing_in_comd <- setdiff(port_iniciais_cvm_types, comd_cvm_types)
+
+    testthat::expect_equal(length(missing_in_catalog), 0L, info = paste("Missing in catalog:", paste(missing_in_catalog, collapse = ", ")))
+    testthat::expect_equal(length(missing_in_comd), 0L, info = paste("Missing in comdinheiro_data:", paste(missing_in_comd, collapse = ", ")))
+  })
+
+  testthat::test_that("port_iniciais prices match those in comdinheiro_data", {
+
+    if (is.null(port_iniciais) || nrow(port_iniciais) == 0L) {
+      testthat::skip("port_iniciais is not available or empty, skipping cvm_code_type consistency test")
+    }
+
+    testthat::expect_equal(
+      port_iniciais %>% dplyr::left_join(
+        comdinheiro_data %>% dplyr::select(cvm_code_type, date, price) %>%
+          dplyr::distinct(),
+        by = c("cvm_code_type", "date")
+      ) %>%
+        dplyr::mutate(diff = price.x - price.y) %>%
+        dplyr::filter(abs(diff) > 1e-3) %>%
+        nrow(),
+      0
+    )
+
+
+
+  })
+
 
 
   invisible(TRUE)

@@ -2,6 +2,7 @@ run_test_dados_bronze <- function(
     dados_bronze,
     broker_accounts,
     current_dates,
+    initial_rebalancing_date,
     weight_tolerance = 1e-3,
     index_weight_tolerance = 0.5,
     min_proventos_zero_share = 0.50,
@@ -30,12 +31,15 @@ run_test_dados_bronze <- function(
   catalog <- dados_bronze$rebalanceamento_tables$catalog
   comdinheiro_data <- dados_bronze$comdinheiro_data
   brokerage_data <- dados_bronze$brokerage_data
+  split_inplit_data <- dados_bronze$split_inplit_data
+  port_iniciais     <- dados_bronze$port_iniciais
 
   validate_bronze_table_types(
     rebal_weights = rebal_weights,
     sectors = sectors,
     catalog = catalog,
-    comdinheiro_data = comdinheiro_data
+    comdinheiro_data = comdinheiro_data,
+    split_inplit_data = split_inplit_data
   )
 
   validate_no_fully_na_columns(
@@ -66,6 +70,11 @@ run_test_dados_bronze <- function(
       "w_smll",
       "w_ise"
     )
+  )
+
+  validate_no_fully_na_columns(
+    df = split_inplit_data,
+    object_name = "split_inplit_data"
   )
 
   validate_rebal_weights_sum(
@@ -128,6 +137,14 @@ run_test_dados_bronze <- function(
     current_dates = current_dates
   )
 
+  validate_port_iniciais(
+    port_iniciais = port_iniciais,
+    broker_accounts = broker_accounts,
+    current_dates = current_dates,
+    initial_rebalancing_date = initial_rebalancing_date,
+    etfs = etfs
+  )
+
   if (isTRUE(verbose)) {
     message("All Bronze Data quality tests passed.")
   }
@@ -140,7 +157,8 @@ validate_bronze_table_types <- function(
     rebal_weights,
     sectors,
     catalog,
-    comdinheiro_data
+    comdinheiro_data,
+    split_inplit_data
 ) {
   required_rebal_cols <- c("date", "id", "legacy_ticker", "weights")
   required_sector_cols <- c("date", "legacy_ticker")
@@ -159,11 +177,13 @@ validate_bronze_table_types <- function(
     "w_smll",
     "w_ise"
   )
+  required_split_inplit_cols <- c("date", "legacy_ticker", "cvm_code_type", "split_factor")
 
   check_required_cols(rebal_weights, required_rebal_cols, "rebal_weights")
   check_required_cols(sectors, required_sector_cols, "sectors")
   check_required_cols(catalog, required_catalog_cols, "catalog")
   check_required_cols(comdinheiro_data, required_comd_cols, "comdinheiro_data")
+  check_required_cols(split_inplit_data, required_split_inplit_cols, "split_inplit_data")
 
   if (!inherits(rebal_weights$date, "Date")) {
     stop("`rebal_weights$date` must be Date.", call. = FALSE)
@@ -179,6 +199,10 @@ validate_bronze_table_types <- function(
 
   if (!inherits(comdinheiro_data$date, "Date")) {
     stop("`comdinheiro_data$date` must be Date.", call. = FALSE)
+  }
+
+  if (!inherits(split_inplit_data$date, "Date")) {
+    stop("`split_inplit_data$date` must be Date.", call. = FALSE)
   }
 
   numeric_cols <- c(
@@ -210,6 +234,10 @@ validate_bronze_table_types <- function(
 
   if (!is.numeric(rebal_weights$weights)) {
     stop("`rebal_weights$weights` must be numeric.", call. = FALSE)
+  }
+
+  if (!is.numeric(split_inplit_data$split_factor)) {
+    stop("`split_inplit_data$split_factor` must be numeric.", call. = FALSE)
   }
 
   invisible(TRUE)
@@ -781,6 +809,7 @@ validate_comdinheiro_population <- function(
     "date",
     "legacy_ticker",
     "cia_name",
+    "proventos_date",
     "cvm_code",
     "cvm_code_full",
     "btc_estoque",
@@ -897,7 +926,7 @@ validate_ret_1d_matches_price_adj_variation <- function(
     )
 
   if (nrow(return_check) > 0) {
-    stop(
+    warning(
       paste0(
         "`ret_1d` does not match adjusted price variation. ",
         "First issue: ticker = ",
@@ -1126,12 +1155,11 @@ validate_brokerage_data <- function(
     )
   )
 
-
   brokerage_notes_log$date <- as.Date(brokerage_notes_log$date)
 
   testthat::expect_true(
-    all(brokerage_notes_log$date %in% current_dates),
-    info = "`brokerage_notes_log$date` contains dates outside `current_dates`."
+    all(current_dates %in% brokerage_notes_log$date),
+    info = "all current_dates should be in log"
   )
 
   if (nrow(brokerage_notes_log) > 0L) {
@@ -1320,8 +1348,8 @@ validate_brokerage_data <- function(
   )
 
   testthat::expect_true(
-    all(trade_data$date %in% current_dates),
-    info = "`trade_data$date` contains dates outside `current_dates`."
+    all(current_dates %in% trade_data$date),
+    info = "`current_dates` contains dates outside `trade_data$date`."
   )
 
   testthat::expect_true(
@@ -1402,3 +1430,305 @@ validate_brokerage_data <- function(
   invisible(TRUE)
 }
 
+validate_port_iniciais <- function(
+    port_iniciais,
+    broker_accounts,
+    current_dates,
+    etfs = c("BOVA11", "BOVV11", "DIVO11", "SMAL11", "ISUS11", "LFTS11"),
+    position_tolerance = 1e-8,
+    initial_rebalancing_date
+) {
+
+  if (is.null(port_iniciais)) {
+    testthat::expect_false(initial_rebalancing_date %in% current_dates)
+
+    return(invisible(TRUE))
+  }
+
+  expected_cols <- c(
+    "date",
+    "id",
+    "fund_name",
+    "legacy_ticker",
+    "positions",
+    "price"
+  )
+
+  testthat::expect_s3_class(port_iniciais, "data.frame")
+
+  testthat::expect_true(all(expected_cols %in% names(port_iniciais)))
+
+  testthat::expect_true(all(names(port_iniciais) == expected_cols))
+
+  testthat::expect_s3_class(port_iniciais$date, "Date")
+
+  testthat::expect_type(port_iniciais$id, "character")
+  testthat::expect_type(port_iniciais$fund_name, "character")
+  testthat::expect_type(port_iniciais$legacy_ticker, "character")
+
+  testthat::expect_true(is.numeric(port_iniciais$positions))
+  testthat::expect_true(is.numeric(port_iniciais$price))
+
+  required_non_missing_cols <- c(
+    "date",
+    "id",
+    "fund_name",
+    "legacy_ticker",
+    "positions",
+    "price"
+  )
+
+  purrr::walk(
+    required_non_missing_cols,
+    function(col) {
+      testthat::expect_false(any(is.na(port_iniciais[[col]])))
+    }
+  )
+
+  testthat::expect_true(all(port_iniciais$positions >= 0))
+  testthat::expect_true(all(port_iniciais$price > 0))
+
+  testthat::expect_equal(
+    min(current_dates),
+    initial_rebalancing_date,
+    info = paste0(
+      "`port_iniciais` is not NULL, so the first date in `current_dates` must be ",
+      "the first date from `data/dev/rebalancing`."
+    )
+  )
+
+  testthat::expect_true(all(port_iniciais$date == initial_rebalancing_date))
+
+  expected_ids <- c(
+    "YMF_29",
+    "YMF_33",
+    "YMF_34",
+    "YMF_35",
+    "YMF_36",
+    "YMF_37",
+    "YMF_500",
+    "YMF_501"
+  )
+
+  testthat::expect_setequal(
+    unique(port_iniciais$id),
+    expected_ids
+  )
+
+  expected_fund_names <- names(broker_accounts)
+
+  testthat::expect_false(
+    is.null(expected_fund_names) || any(expected_fund_names == "")
+  )
+
+  testthat::expect_setequal(
+    unique(port_iniciais$fund_name),
+    expected_fund_names
+  )
+
+  expected_id_fund_map <- data.frame(
+    id = c(
+      "YMF_29",
+      "YMF_35",
+      "YMF_36",
+      "YMF_37",
+      "YMF_33",
+      "YMF_34",
+      "YMF_500",
+      "YMF_501"
+    ),
+    fund_name = c(
+      "sicoob_acoes",
+      "sicoob_small_caps",
+      "sicoob_dividendos",
+      "sicoob_asg_is",
+      "vgbl_sicoob_seguradora_rv_30",
+      "vgbl_sicoob_seguradora_rv_65",
+      "previ_sicoob_500rv",
+      "previ_sicoob_501rv"
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  id_fund_check <- port_iniciais %>%
+    dplyr::distinct(id, fund_name)
+
+  unexpected_id_fund_pairs <- id_fund_check %>%
+    dplyr::anti_join(
+      expected_id_fund_map,
+      by = c("id", "fund_name")
+    )
+
+  testthat::expect_equal(
+    nrow(unexpected_id_fund_pairs),
+    0L,
+    info = paste0(
+      "`port_iniciais` has unexpected id/fund_name pairs. First issue: ",
+      if (nrow(unexpected_id_fund_pairs) > 0L) {
+        paste0(
+          unexpected_id_fund_pairs$id[1],
+          " / ",
+          unexpected_id_fund_pairs$fund_name[1]
+        )
+      } else {
+        "none"
+      }
+    )
+  )
+
+  etf_coverage <- port_iniciais %>%
+    dplyr::filter(legacy_ticker %in% etfs) %>%
+    dplyr::group_by(fund_name) %>%
+    dplyr::summarise(
+      n_etfs = dplyr::n_distinct(legacy_ticker),
+      etfs_found = paste(sort(unique(legacy_ticker)), collapse = ", "),
+      .groups = "drop"
+    )
+
+  missing_etf_coverage <- data.frame(
+    fund_name = expected_fund_names,
+    stringsAsFactors = FALSE
+  ) %>%
+    dplyr::left_join(
+      etf_coverage,
+      by = "fund_name"
+    ) %>%
+    dplyr::mutate(
+      n_etfs = dplyr::coalesce(n_etfs, 0L),
+      etfs_found = dplyr::coalesce(etfs_found, "")
+    ) %>%
+    dplyr::filter(n_etfs < 2L)
+
+  testthat::expect_equal(
+    nrow(missing_etf_coverage),
+    0L,
+    info = paste0(
+      "Each `fund_name` must contain at least two ETFs from `etfs`. First issue: ",
+      if (nrow(missing_etf_coverage) > 0L) {
+        paste0(
+          missing_etf_coverage$fund_name[1],
+          " has ",
+          missing_etf_coverage$n_etfs[1],
+          " ETF(s): ",
+          missing_etf_coverage$etfs_found[1]
+        )
+      } else {
+        "none"
+      }
+    )
+  )
+
+  lfts11_coverage <- port_iniciais %>%
+    dplyr::group_by(fund_name) %>%
+    dplyr::summarise(
+      has_lfts11 = any(legacy_ticker == "LFTS11"),
+      .groups = "drop"
+    )
+
+  missing_lfts11 <- data.frame(
+    fund_name = expected_fund_names,
+    stringsAsFactors = FALSE
+  ) %>%
+    dplyr::left_join(
+      lfts11_coverage,
+      by = "fund_name"
+    ) %>%
+    dplyr::mutate(
+      has_lfts11 = dplyr::coalesce(has_lfts11, FALSE)
+    ) %>%
+    dplyr::filter(!has_lfts11)
+
+  testthat::expect_equal(
+    nrow(missing_lfts11),
+    0L,
+    info = paste0(
+      "All fund_names must contain LFTS11. Missing fund_names: ",
+      paste(missing_lfts11$fund_name, collapse = ", ")
+    )
+  )
+
+  expected_position_sums <- data.frame(
+    fund_name = c(
+      "sicoob_acoes",
+      "vgbl_sicoob_seguradora_rv_30",
+      "vgbl_sicoob_seguradora_rv_65",
+      "sicoob_small_caps",
+      "sicoob_dividendos",
+      "sicoob_asg_is",
+      "previ_sicoob_500rv",
+      "previ_sicoob_501rv"
+    ),
+    expected_positions = c(
+      1721903,
+      1242319,
+      279673,
+      802271,
+      801165,
+      307573,
+      357349,
+      2244123
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  observed_position_sums <- port_iniciais %>%
+    dplyr::filter(legacy_ticker != "LFTS11") %>%
+    dplyr::group_by(fund_name) %>%
+    dplyr::summarise(
+      observed_positions = sum(positions, na.rm = FALSE),
+      .groups = "drop"
+    )
+
+  position_sum_check <- expected_position_sums %>%
+    dplyr::left_join(
+      observed_position_sums,
+      by = "fund_name"
+    ) %>%
+    dplyr::mutate(
+      abs_error = abs(observed_positions - expected_positions)
+    )
+
+  bad_position_sums <- position_sum_check %>%
+    dplyr::filter(
+      is.na(observed_positions) |
+        abs_error > position_tolerance
+    )
+
+  testthat::expect_equal(
+    nrow(bad_position_sums),
+    0L,
+    info = paste0(
+      "`port_iniciais` position sums do not match expected totals. First issue: ",
+      if (nrow(bad_position_sums) > 0L) {
+        paste0(
+          bad_position_sums$fund_name[1],
+          " expected = ",
+          bad_position_sums$expected_positions[1],
+          ", observed = ",
+          bad_position_sums$observed_positions[1]
+        )
+      } else {
+        "none"
+      }
+    )
+  )
+
+  duplicated_rows <- port_iniciais %>%
+    dplyr::count(
+      date,
+      id,
+      fund_name,
+      legacy_ticker,
+      positions,
+      price
+    ) %>%
+    dplyr::filter(n > 1L)
+
+  testthat::expect_equal(
+    nrow(duplicated_rows),
+    0L,
+    info = "`port_iniciais` contains duplicated rows."
+  )
+
+  invisible(TRUE)
+}

@@ -82,10 +82,19 @@ list(
   ),
 
   tar_target(
+    initial_rebalancing_date,
+    {
+      list.files(here::here("data", "dev", "rebalancing")) %>%
+        as.Date(format = "%Y%m%d") %>%
+        min()
+    }
+  ),
+
+  tar_target(
     current_dates,
     create_current_dates(
-      date_begin      = "2026-04-20",
-      date_end        = "2026-05-02",
+      date_begin      = "2026-05-15",
+      date_end        = "2026-06-30",
       manifest        = manifest,
       anbima_holidays = anbima_holidays
     )
@@ -94,18 +103,23 @@ list(
   tar_target(
     dados_bronze_refreshed,
     deploy_dados_bronze(
-      current_dates  = current_dates,
-      manifest       = manifest,
-      anbima_holidays= anbima_holidays,
-      broker_accounts= broker_accounts,
-      overwrite      = FALSE,
-      commit         = "Deploying Bronze Data",
-      board          = board
+      current_dates            = current_dates,
+      initial_rebalancing_date = initial_rebalancing_date,
+      manifest                 = manifest,
+      anbima_holidays          = anbima_holidays,
+      broker_accounts          = broker_accounts,
+      overwrite                = FALSE,
+      commit                   = "Deploying Bronze Data",
+      board                    = board
     )
   ),
 
   tar_target(
     catalog_update,
+    ## The purpose of this is to adjust a ticker that has changed after
+    ## the last catalog update. This will be used in the apply_catalog step
+    ## In subsequent months, the change will already be in catalog from pipeline
+    ## Keeping a change already impacted causes no harm
     data.frame(
       date          = as.Date(rep("2026-04-20", 2)),
       legacy_ticker = c("SAUD3", "AZUL3"),
@@ -116,12 +130,13 @@ list(
   tar_target(
     dados_silver_refreshed,
     deploy_dados_silver(
-      dados_bronze_refreshed = dados_bronze_refreshed,
-      catalog_update         = catalog_update,
-      current_dates          = current_dates,
-      manifest               = manifest,
-      broker_accounts        = broker_accounts,
-      fund_tickers           =
+      dados_bronze_refreshed   = dados_bronze_refreshed,
+      catalog_update           = catalog_update,
+      current_dates            = current_dates,
+      initial_rebalancing_date = initial_rebalancing_date,
+      manifest                 = manifest,
+      broker_accounts          = broker_accounts,
+      fund_tickers             =
         c("BOVA11", "BOVV11", "SMAL11", "DIVO11", "ISUS11", "LFTS11",
           "avantgarde_multifatores", "az_quest_bayes_sistematico",
           "bb_acoes_selecao_fatorial", "constancia_fundamento",
@@ -130,6 +145,34 @@ list(
           "v8_veyron", "vgbl_sicoob_seguradora_rv_30", "vgbl_sicoob_seguradora_rv_65"),
       commit = "Deploying silver batch",
       board  = board
+    )
+  ),
+
+  tar_target(
+    dados_gold_refreshed,
+    deploy_dados_gold(
+      dados_silver_refreshed   = dados_silver_refreshed,
+      current_dates            = current_dates,
+      initial_rebalancing_date = initial_rebalancing_date,
+      manifest                 = manifest,
+      commit                   = "Deploying gold batch",
+      board                    = board
+    )
+  ),
+
+  tar_target(
+    manifest_refreshed,
+    save_manifest(
+      board                  = board,
+      current_dates          = current_dates,
+      dados_bronze_refreshed = dados_bronze_refreshed,
+      dados_silver_refreshed = dados_silver_refreshed,
+      dados_gold_refreshed   = dados_gold_refreshed,
+      previous_manifest      = manifest,
+      commit                 = "Deploying full bronze/silver/gold refresh",
+      source                 = "internal",
+      manifest_pin_name      = "manifest",
+      comparison             = "identical"
     )
   )
 )

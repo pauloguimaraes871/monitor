@@ -1,5 +1,5 @@
 deploy_dados_silver <- function(dados_bronze_refreshed, catalog_update, current_dates, manifest = NULL,
-                                broker_accounts, fund_tickers, commit = NULL, board){
+                                initial_rebalancing_date, broker_accounts, fund_tickers, commit = NULL, board){
 
   message("Deploying Silver Data...")
   ##Adjust objects and apply catalog--------------------------------------------
@@ -27,19 +27,34 @@ deploy_dados_silver <- function(dados_bronze_refreshed, catalog_update, current_
       dados_bronze_batch$brokerage_data$brokerage_notes_log <-
         dados_bronze_batch$brokerage_data$brokerage_notes_log %>%
         dplyr::filter(date %in% current_dates)
+      #### split_inplit
+      dados_bronze_batch$split_inplit_data <-
+        dados_bronze_batch$split_inplit_data %>%
+        dplyr::filter(date %in% current_dates)
+      #### ports_iniciais
+      if (min(as.Date(list.files(here::here("data", "dev", "rebalancing")), format = "%Y%m%d")) %in%
+          current_dates){
+        dados_bronze_batch$port_iniciais <-
+          dados_bronze_batch$port_iniciais
+      } else {
+        dados_bronze_batch$port_iniciais <-
+          NULL
+      }
 
     ### Apply catalog
     translated_tables <- run_logged(
       fun = function(){
         apply_catalog(
           ###Note those bronze are full datasets
-          rebalanceamento_tables = dados_bronze_batch$rebalanceamento_tables,
-          comdinheiro_data       = dados_bronze_batch$comdinheiro_data,
-          brokerage_data         = dados_bronze_batch$brokerage_data,
-          broker_accounts        = broker_accounts,
-          catalog_update         = catalog_update,
-          fund_tickers           = fund_tickers,
-          verbose                = TRUE
+          rebalanceamento_tables   = dados_bronze_batch$rebalanceamento_tables,
+          comdinheiro_data         = dados_bronze_batch$comdinheiro_data,
+          brokerage_data           = dados_bronze_batch$brokerage_data,
+          port_iniciais            = dados_bronze_batch$port_iniciais,
+          initial_rebalancing_date = initial_rebalancing_date,
+          broker_accounts          = broker_accounts,
+          catalog_update           = catalog_update,
+          fund_tickers             = fund_tickers,
+          verbose                  = TRUE
         )
       },
       log_file = paste0("apply_catalog", min(current_dates), "_", max(current_dates)),
@@ -49,15 +64,17 @@ deploy_dados_silver <- function(dados_bronze_refreshed, catalog_update, current_
     ### Rearrange structure
     dados_silver_batch <- list(
       rebalanceamento_tables = list(
-        rebal_weights  = translated_tables$rebal_weights,
-        sectors        = translated_tables$sectors,
-        catalog        = translated_tables$catalog
+        rebal_weights   = translated_tables$rebal_weights,
+        sectors         = translated_tables$sectors,
+        catalog         = translated_tables$catalog
       ),
-      comdinheiro_data = translated_tables$comdinheiro_data,
-      brokerage_data         = list(
+      comdinheiro_data  = translated_tables$comdinheiro_data,
+      brokerage_data        = list(
         trade_data          = translated_tables$trade_data,
         brokerage_notes_log = translated_tables$brokerage_notes_log
-      )
+      ),
+      split_inplit_data = dados_bronze_batch$split_inplit_data,
+      port_iniciais     = translated_tables$port_iniciais
     )
 
   ##Test------------------------------------------------------------------------
@@ -79,7 +96,7 @@ deploy_dados_silver <- function(dados_bronze_refreshed, catalog_update, current_
   old_dados_silver <- read_pin_from_manifest(
     board       = board,
     manifest    = manifest,
-    object_name = "dados_silver"
+    object_name = "dados_silver_refreshed"
   )
 
   ##Erase old catalog

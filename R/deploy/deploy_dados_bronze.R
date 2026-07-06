@@ -1,4 +1,4 @@
-deploy_dados_bronze <- function(current_dates, anbima_holidays, broker_accounts,
+deploy_dados_bronze <- function(current_dates, anbima_holidays, broker_accounts, initial_rebalancing_date,
                                 overwrite = FALSE, manifest = NULL, commit = NULL, board){
 
   message("Deploying Bronze Data...")
@@ -7,9 +7,10 @@ deploy_dados_bronze <- function(current_dates, anbima_holidays, broker_accounts,
   dados_bronze_batch <- run_logged(
     fun = function(){
       load_dados_bronze(
-        current_dates   = current_dates,
-        anbima_holidays = anbima_holidays,
-        overwrite       = overwrite
+        current_dates            = current_dates,
+        anbima_holidays          = anbima_holidays,
+        overwrite                = overwrite,
+        initial_rebalancing_date = initial_rebalancing_date
       )
     },
     log_file = paste0("load_dados_bronze_", min(current_dates), "_", max(current_dates)),
@@ -22,8 +23,18 @@ deploy_dados_bronze <- function(current_dates, anbima_holidays, broker_accounts,
   old_dados_bronze <- read_pin_from_manifest(
     board = board,
     manifest = manifest,
-    object_name = "dados_bronze"
+    object_name = "dados_bronze_refreshed"
   )
+
+  ## If overwrite is not TRUE, remove dates outside current_dates from rebalanceamento_tables
+  if (!isTRUE(overwrite)){
+    dados_bronze_batch$rebalanceamento_tables$rebal_weights <- dados_bronze_batch$rebalanceamento_tables$rebal_weights %>%
+      dplyr::filter(date %in% current_dates)
+    dados_bronze_batch$rebalanceamento_tables$sectors <- dados_bronze_batch$rebalanceamento_tables$sectors %>%
+      dplyr::filter(date %in% current_dates)
+    dados_bronze_batch$rebalanceamento_tables$catalog <- dados_bronze_batch$rebalanceamento_tables$catalog %>%
+      dplyr::filter(date %in% current_dates)
+  }
 
   dados_bronze_refreshed <- append_dados_batch(
     old_dados   = old_dados_bronze,
@@ -39,6 +50,7 @@ deploy_dados_bronze <- function(current_dates, anbima_holidays, broker_accounts,
         dados_bronze             = dados_bronze_refreshed,
         broker_accounts          = broker_accounts,
         current_dates            = current_dates,
+        initial_rebalancing_date = initial_rebalancing_date,
         weight_tolerance         = 1e-3,
         index_weight_tolerance   = 0.5,
         min_proventos_zero_share = 0.50,

@@ -1,4 +1,5 @@
-load_dados_bronze <- function(current_dates, anbima_holidays, overwrite = FALSE){
+load_dados_bronze <- function(current_dates, anbima_holidays, initial_rebalancing_date,
+                              overwrite = FALSE){
 
   #Check------------------------------------------------------------------------
     ##Check for holidays and exclude them from current_dates
@@ -18,6 +19,7 @@ load_dados_bronze <- function(current_dates, anbima_holidays, overwrite = FALSE)
 
   #Load-------------------------------------------------------------------------
   message("Loading data for dates: ", paste(as.character(current_dates), collapse = ", "))
+  browser()
   rebalanceamento_tables <- load_rebalanceamento(max(current_dates))
   comdinheiro_data       <- download_comdinheiro(
     current_dates = current_dates,
@@ -33,6 +35,9 @@ load_dados_bronze <- function(current_dates, anbima_holidays, overwrite = FALSE)
 
   brokerage_notes_log   <- download_brokerage_notes_from_outlook(current_dates = current_dates)
   trade_data            <- load_brokerage_notes(current_dates)
+  split_inplit_data     <- load_split_inplit_data(current_dates)
+  port_iniciais         <- load_port_iniciais(current_dates,
+                                              initial_rebalancing_date = initial_rebalancing_date)
 
   #Return-----------------------------------------------------------------------
   list(
@@ -41,14 +46,16 @@ load_dados_bronze <- function(current_dates, anbima_holidays, overwrite = FALSE)
     brokerage_data         = list(
       brokerage_notes_log = brokerage_notes_log,
       trade_data          = trade_data
-    )
+    ),
+    split_inplit_data     = split_inplit_data,
+    port_iniciais         = port_iniciais
   )
 
 }
 
 
 load_rebalanceamento <- function(current_date, etfs = c("BOVA11", "BOVV11", "DIVO11", "SMAL11", "ISUS11")){
-
+browser()
   #Helpers----------------------------------------------------------------------
   ##Helpers
   parse_weight <- function(x) {
@@ -268,8 +275,11 @@ load_rebalanceamento <- function(current_date, etfs = c("BOVA11", "BOVV11", "DIV
       dplyr::filter(file_ext == "csv") %>%
       dplyr::filter(stringr::str_detect(file_id, paste0(weights_csv, collapse = "|")))
 
-    ## Read and validate each CSV file, combining results into a single data frame
+      ### Exclude themes
+      csv_weight_files <- csv_weight_files %>%
+        dplyr::filter(!basename(file_path) %in% c("cluster_themes.csv", "signal_themes.csv"))
 
+    ## Read and validate each CSV file, combining results into a single data frame
     csv_weights <- purrr::pmap_dfr(
       list(
         file_path = csv_weight_files$file_path,
@@ -884,6 +894,10 @@ download_comdinheiro <- function(
         cvm_code = NA_character_,
         cvm_code_full = NA_character_,
         proventos = NA_real_,
+        proventos_date = as.Date(NA),
+        price_adj_c = NA_real_,
+        price_adj_d = NA_real_,
+        event_factor = NA_real_,
         volume = NA_real_,
         n_shares = NA_real_,
         w_ibov = NA_real_,
@@ -902,9 +916,13 @@ download_comdinheiro <- function(
         cvm_code_full,
         ret_1d,
         proventos,
+        proventos_date,
         price,
         price_adj,
+        price_adj_c,
+        price_adj_d,
         volume,
+        event_factor,
         n_shares,
         w_ibov,
         w_idiv,
@@ -948,13 +966,13 @@ download_comdinheiro <- function(
   }
 
   make_request <- function(rel_url) {
-    req <- httr2::request(endpoint) |>
+    req <- httr2::request(endpoint) %>%
       httr2::req_headers(
         "Content-Type" = "application/x-www-form-urlencoded",
         "User-Agent" = "comdinheiro-r/0.1"
-      ) |>
-      httr2::req_retry(max_tries = 1) |>
-      httr2::req_timeout(3600) |>
+      ) %>%
+      httr2::req_retry(max_tries = 1) %>%
+      httr2::req_timeout(3600) %>%
       httr2::req_body_form(
         username = COMD_USER,
         password = COMD_PASS,
@@ -1123,9 +1141,13 @@ download_comdinheiro <- function(
       "cvm_code_full",
       "ret_1d",
       "proventos",
+      "proventos_date",
       "price",
       "price_adj",
+      "price_adj_c",
+      "price_adj_d",
       "volume",
+      "event_factor",
       "n_shares",
       "w_ibov",
       "w_idiv",
@@ -1155,13 +1177,17 @@ download_comdinheiro <- function(
         cia_name = as.character(cia_name),
         cvm_code = as.character(cvm_code),
         cvm_code_full = as.character(cvm_code_full),
+        proventos_date = as.Date(proventos_date, format = "%d/%m/%Y"),
         dplyr::across(
           .cols = c(
             ret_1d,
             proventos,
             price,
             price_adj,
+            price_adj_c,
+            price_adj_d,
             volume,
+            event_factor,
             n_shares,
             w_ibov,
             w_idiv,
@@ -1177,6 +1203,7 @@ download_comdinheiro <- function(
   }
 
   validate_stock_df <- function(df, date) {
+
     required_cols <- c(
       "legacy_ticker",
       "cia_name",
@@ -1184,9 +1211,13 @@ download_comdinheiro <- function(
       "cvm_code_full",
       "ret_1d",
       "proventos",
+      "proventos_date",
       "price",
       "price_adj",
+      "price_adj_c",
+      "price_adj_d",
       "volume",
+      "event_factor",
       "n_shares",
       "w_ibov",
       "w_idiv",
@@ -1231,9 +1262,13 @@ download_comdinheiro <- function(
       "cvm_code_full",
       "ret_1d",
       "proventos",
+      "proventos_date",
       "price",
       "price_adj",
+      "price_adj_c",
+      "price_adj_d",
       "volume",
+      "event_factor",
       "n_shares",
       "w_ibov",
       "w_idiv",
@@ -1279,6 +1314,14 @@ download_comdinheiro <- function(
       ) %>%
       dplyr::filter(fully_na) %>%
       dplyr::pull(column)
+
+    allowed_fully_na_cols <- c(
+      "proventos",
+      "proventos_date",
+      "event_factor"
+    )
+
+    fully_na_cols <- setdiff(fully_na_cols, allowed_fully_na_cols)
 
     if (length(fully_na_cols) > 0) {
       stop(
@@ -1363,7 +1406,9 @@ download_comdinheiro <- function(
     "&data_analise=25/05/2026",
     "&data_dem=31/12/9999",
     "&variaveis=TICKER+NOME_EMPRESA+CODIGO_CVM+codigo_cvm_full+ret_01d+",
-    "PROVENTOS(01d,,,A1,C,todos)+PRECO+PRECO_AJ(,,,A,C)+VOLUME_DIA+",
+    "PROVENTOS(01d,,,A1,C,todos)+PROVENTOS(01d,,,B1,C,todos)+",
+    "PRECO+PRECO_AJ(,,,A,C)+PRECO_AJ(,,,C,C)+PRECO_AJ(,,,D,C)+",
+    "VOLUME_DIA+FATOR_CORRECAO_EVENTOS(,F1,EV1,P,)+",
     "QUANT_ACAO(,TOTAL_OUT,)+",
     "PESO_INDICE(participacao,IBOVESPA,,,)+",
     "PESO_INDICE(participacao,IDIV,,,)+",
@@ -1486,7 +1531,10 @@ download_comdinheiro <- function(
           file_path,
           show_col_types = FALSE
         ) %>%
-          dplyr::mutate(date = as.Date(date))
+          dplyr::mutate(
+            date = as.Date(date),
+            proventos_date = as.Date(proventos_date)
+          )
 
         expected_date <- as.Date(
           sub(
@@ -1577,8 +1625,11 @@ download_comdinheiro <- function(
         existing_df <- readr::read_csv(
           file_path,
           show_col_types = FALSE
-        ) %>%
-          dplyr::mutate(date = as.Date(date))
+        )  %>%
+          dplyr::mutate(
+            date = as.Date(date),
+            proventos_date = as.Date(proventos_date)
+          )
 
         validate_final_date_df(existing_df, current_date)
 
@@ -2438,9 +2489,219 @@ load_brokerage_notes <- function(
   trades_df
 }
 
+load_split_inplit_data <- function(current_dates) {
+
+  ## Read path
+  splits_path <- here::here("data", "dev", "split_inplit", "split_inplit.xlsx")
+  split_inplit_data <- readxl::read_excel(splits_path) %>%
+    dplyr::mutate(
+      date = as.Date(date),
+      legacy_ticker = as.character(legacy_ticker),
+      cvm_code_type = as.character(cvm_code_type),
+      split_factor = as.numeric(split_factor)
+    ) %>%
+    dplyr::filter(date %in% current_dates) %>%
+    dplyr::arrange(date, legacy_ticker)
+
+  ## Return
+  return(split_inplit_data)
+}
+
+load_port_iniciais <- function(current_dates, initial_rebalancing_date){
+
+  ## Init-----------------------------------------------------------------------
+
+  ## Short circuit if current_dates is not initial_rebalancing_date
+  if (!initial_rebalancing_date %in% current_dates) return(NULL)
+
+  ## Define path
+  path <- file.path(here::here("data", "dev", "port_iniciais"))
+
+  ## Helper
+  parse_numeric_robust <- function(x) {
+    x <- as.character(x)
+    x <- stringr::str_squish(x)
+    x <- stringr::str_replace_all(x, "\\s+", "")
+
+    purrr::map_dbl(x, function(value) {
+
+      if (is.na(value) || value == "") {
+        return(NA_real_)
+      }
+
+      has_comma <- stringr::str_detect(value, ",")
+      has_dot <- stringr::str_detect(value, "\\.")
+
+      if (has_comma && has_dot) {
+        # Brazilian format: 1.234,56
+        value <- stringr::str_replace_all(value, "\\.", "")
+        value <- stringr::str_replace_all(value, ",", ".")
+      } else if (has_comma && !has_dot) {
+        # Brazilian decimal comma: 26,21
+        value <- stringr::str_replace_all(value, ",", ".")
+      } else {
+        # Decimal dot format: 26.21
+        value <- value
+      }
+
+      suppressWarnings(as.numeric(value))
+    })
+  }
+
+  ## Mapper
+  fund_name_map <- c(
+    "29"  = "sicoob_acoes",
+    "35"  = "sicoob_small_caps",
+    "36"  = "sicoob_dividendos",
+    "37"  = "sicoob_asg_is",
+    "33"  = "vgbl_sicoob_seguradora_rv_30",
+    "34"  = "vgbl_sicoob_seguradora_rv_65",
+    "500" = "previ_sicoob_500rv",
+    "501" = "previ_sicoob_501rv"
+  )
+
+  ## Define processing routine
+  process_one_file <- function(path) {
+
+    file_code <- basename(path) %>%
+      tools::file_path_sans_ext() %>%
+      stringr::str_extract("^[0-9]+")
+
+    if (is.na(file_code)) {
+      stop(
+        "Could not extract account code from file name: ",
+        basename(path),
+        call. = FALSE
+      )
+    }
+
+    if (!file_code %in% names(fund_name_map)) {
+      stop(
+        "No `fund_name` mapping found for account code ",
+        file_code,
+        " in file ",
+        basename(path),
+        call. = FALSE
+      )
+    }
+
+    raw_df <- readxl::read_excel(
+      path = path,
+      col_types = "text",
+      .name_repair = "unique"
+    )
+
+    if (ncol(raw_df) < 7L) {
+      stop(
+        "File ",
+        basename(path),
+        " has fewer than 7 columns, so columns C, E, F and G cannot be extracted.",
+        call. = FALSE
+      )
+    }
+
+    out <- raw_df %>%
+      dplyr::select(
+        Security = 3,
+        Account_Code = 5,
+        Price = 6,
+        Position = 7
+      ) %>%
+      dplyr::mutate(
+        Security = as.character(Security),
+        Account_Code = as.character(Account_Code),
+        Account_Code = stringr::str_extract(Account_Code, "[0-9]+"),
+        Account_Code = paste0("YMF_", Account_Code),
+        Price = parse_numeric_robust(Price),
+        Position = as.numeric(Position),
+        Security = stringr::str_remove(Security, "\\s+BZ$"),
+        Security = dplyr::if_else(Security == "{cash} BRL", "LFTS11", Security)
+      ) %>%
+      dplyr::filter(!Security %in% c("MULTI", "{accrual} BRL"))
+
+    account_codes_in_file <- out %>%
+      dplyr::distinct(Account_Code) %>%
+      dplyr::pull(Account_Code)
+
+    expected_account_code <- paste0("YMF_", file_code)
+
+    if (!identical(account_codes_in_file, expected_account_code)) {
+      stop(
+        "Account code mismatch in file ",
+        basename(path),
+        ". Expected only ",
+        expected_account_code,
+        ", but found: ",
+        paste(account_codes_in_file, collapse = ", "),
+        call. = FALSE
+      )
+    }
+
+    out <- out %>%
+      dplyr::transmute(
+        date = initial_rebalancing_date,
+        id = Account_Code,
+        fund_name = unname(fund_name_map[[file_code]]),
+        legacy_ticker = Security,
+        positions = Position,
+        price = Price
+      )
+
+    ##Make ponctual adjustments
+    if (initial_rebalancing_date == as.Date("2026-04-20")){
+      if (unique(out$id) == "YMF_29"){
+        pos <- which(out$legacy_ticker == "FIQE3" & out$positions == 35803)
+        out$positions[pos] <- 35805
+      }
+      if (unique(out$id) == "YMF_33"){
+        pos <- which(out$legacy_ticker == "FIQE3" & out$positions == 18625)
+        out$positions[pos] <- 18626
+        pos <- which(out$legacy_ticker == "TIMS3" & out$positions == 13100)
+        out$positions[pos] <- 12800
+      }
+      if (unique(out$id) == "YMF_34"){
+        pos <- which(out$legacy_ticker == "TIMS3" & out$positions == 3000)
+        out$positions[61] <- 2900
+      }
+      if (unique(out$id) == "YMF_35"){
+        pos <- which(out$legacy_ticker == "FIQE3" & out$positions == 14169)
+        out$positions[pos] <- 14171
+      }
+      if (unique(out$id) == "YMF_36"){}
+      if (unique(out$id) == "YMF_37"){
+        pos <- which(out$legacy_ticker == "TIMS3" & out$positions == 8800)
+        out$positions[pos] <- 8600
+        pos <- which(out$legacy_ticker == "MBRF3" & out$positions == 3159)
+        out$positions[pos] <- 3158
+      }
+      if (unique(out$id) == "YMF_500"){}
+      if (unique(out$id) == "YMF_501"){
+        pos <- which(out$legacy_ticker == "FIQE3" & out$positions == 33630)
+        out$positions[pos] <- 33633
+        pos <- which(out$legacy_ticker == "TIMS3" & out$positions == 23800)
+        out$positions[pos] <- 23600
+      }
+    }
+
+    out
 
 
+  }
 
+  xlsx_files <- list.files(
+    path = path,
+    pattern = "\\.xlsx$",
+    full.names = TRUE
+  )
+
+  if (length(xlsx_files) == 0L) {
+    stop("No `.xlsx` files found in folder: ", folder, call. = FALSE)
+  }
+
+  purrr::map_dfr(xlsx_files, process_one_file)
+
+
+}
 
 
 

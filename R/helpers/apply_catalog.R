@@ -1,5 +1,5 @@
-apply_catalog <- function(rebalanceamento_tables, comdinheiro_data, brokerage_data,
-                          catalog_update, fund_tickers, broker_accounts,
+apply_catalog <- function(rebalanceamento_tables, comdinheiro_data, brokerage_data, port_iniciais = NULL,
+                          catalog_update, fund_tickers, broker_accounts, initial_rebalancing_date,
                           verbose = TRUE){
 
   rebal_weights    <- rebalanceamento_tables$rebal_weights
@@ -350,6 +350,43 @@ apply_catalog <- function(rebalanceamento_tables, comdinheiro_data, brokerage_da
       )
     }
 
+  ## Apply to port iniciais-----------------------------------------------------
+  if (!is.null(port_iniciais)){
+    port_iniciais <- port_iniciais %>%
+      dplyr::left_join(
+        catalog_lookup,
+        by = c("legacy_ticker")
+      ) %>%
+      dplyr::select(date, id, fund_name, legacy_ticker, cvm_code_type, positions, price) %>%
+      dplyr::mutate(
+        legacy_ticker = dplyr::if_else(
+          legacy_ticker == "{cash} BRL",
+          "LFTS11",
+          legacy_ticker
+        )
+      ) %>%
+      dplyr::left_join(
+        comdinheiro_data %>%
+          dplyr::filter(cvm_code_type == "LFTS11") %>%
+          dplyr::filter(date == initial_rebalancing_date) %>%
+          dplyr::transmute(cvm_code_type, price_lfts11 = price),
+        by = "cvm_code_type"
+      ) %>%
+      dplyr::mutate(
+        price = dplyr::if_else(
+          cvm_code_type == "LFTS11",
+          price_lfts11,
+          price
+        ),
+        positions = dplyr::if_else(
+          cvm_code_type == "LFTS11",
+          round(positions / price_lfts11, 0),
+          positions
+        )
+      ) %>%
+      dplyr::select(-price_lfts11)
+  }
+
   ## Return---------------------------------------------------------------------
   return(
     list(
@@ -358,7 +395,8 @@ apply_catalog <- function(rebalanceamento_tables, comdinheiro_data, brokerage_da
       sectors             = sectors,
       catalog             = catalog,
       trade_data          = trade_data,
-      brokerage_notes_log = brokerage_notes_log
+      brokerage_notes_log = brokerage_notes_log,
+      port_iniciais       = port_iniciais
     )
   )
 }
