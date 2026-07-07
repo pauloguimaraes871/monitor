@@ -19,7 +19,6 @@ load_dados_bronze <- function(current_dates, anbima_holidays, initial_rebalancin
 
   #Load-------------------------------------------------------------------------
   message("Loading data for dates: ", paste(as.character(current_dates), collapse = ", "))
-  browser()
   rebalanceamento_tables <- load_rebalanceamento(max(current_dates))
   comdinheiro_data       <- download_comdinheiro(
     current_dates = current_dates,
@@ -36,6 +35,7 @@ load_dados_bronze <- function(current_dates, anbima_holidays, initial_rebalancin
   brokerage_notes_log   <- download_brokerage_notes_from_outlook(current_dates = current_dates)
   trade_data            <- load_brokerage_notes(current_dates)
   split_inplit_data     <- load_split_inplit_data(current_dates)
+  other_events_data     <- load_other_events_data(current_dates)
   port_iniciais         <- load_port_iniciais(current_dates,
                                               initial_rebalancing_date = initial_rebalancing_date)
 
@@ -48,6 +48,7 @@ load_dados_bronze <- function(current_dates, anbima_holidays, initial_rebalancin
       trade_data          = trade_data
     ),
     split_inplit_data     = split_inplit_data,
+    other_events_data     = other_events_data,
     port_iniciais         = port_iniciais
   )
 
@@ -55,7 +56,6 @@ load_dados_bronze <- function(current_dates, anbima_holidays, initial_rebalancin
 
 
 load_rebalanceamento <- function(current_date, etfs = c("BOVA11", "BOVV11", "DIVO11", "SMAL11", "ISUS11")){
-browser()
   #Helpers----------------------------------------------------------------------
   ##Helpers
   parse_weight <- function(x) {
@@ -2505,6 +2505,29 @@ load_split_inplit_data <- function(current_dates) {
 
   ## Return
   return(split_inplit_data)
+}
+
+load_other_events_data <- function(current_dates){
+
+  ## Read path
+  other_events_path <- here::here("data", "dev", "other_events", "other_events.xlsx")
+  other_events_data <- readxl::read_excel(other_events_path) %>%
+    dplyr::mutate(
+      date = as.Date(date),
+      old_legacy_ticker = as.character(old_legacy_ticker),
+      old_cvm_code_type = as.character(old_cvm_code_type),
+      new_legacy_ticker = as.character(new_legacy_ticker),
+      new_cvm_code_type = as.character(new_cvm_code_type),
+      adj_factor        = as.numeric(adj_factor)
+    ) %>%
+    dplyr::filter(date %in% current_dates) %>%
+    dplyr::arrange(date, old_legacy_ticker)
+
+  ## Return
+  return(other_events_data)
+
+
+
 }
 
 load_port_iniciais <- function(current_dates, initial_rebalancing_date){

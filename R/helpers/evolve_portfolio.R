@@ -7,6 +7,7 @@ evolve_portfolio <- function(
     id = NULL,
     fund_name = NULL,
     split_inplit_data = NULL,
+    other_events_data = NULL,
     transaction_costs_bps = NULL,
     fund_fees_bps = 0,
     weight_tolerance = 1e-2,
@@ -27,6 +28,7 @@ evolve_portfolio <- function(
     id = id,
     fund_name = fund_name,
     split_inplit_data = split_inplit_data,
+    other_events_data = other_events_data,
     transaction_costs_bps = transaction_costs_bps,
     fund_fees_bps = fund_fees_bps,
     weight_tolerance = weight_tolerance,
@@ -48,6 +50,7 @@ evolve_portfolio <- function(
   comdinheiro_data <- validated_inputs$comdinheiro_data
   trade_data <- validated_inputs$trade_data
   split_inplit_data <- validated_inputs$split_inplit_data
+  other_events_data <- validated_inputs$other_events_data
   transaction_costs_bps <- validated_inputs$transaction_costs_bps
   daily_fee_return <- validated_inputs$daily_fee_return
 
@@ -209,12 +212,19 @@ evolve_portfolio <- function(
       dplyr::filter(date == current_date) %>%
       dplyr::select(date, legacy_ticker, cvm_code_type, split_factor, position_factor)
 
+    other_events_today <- other_events_data %>%
+      dplyr::filter(date == current_date) %>%
+      dplyr::select(date, old_legacy_ticker, old_cvm_code_type,
+                    new_legacy_ticker, new_cvm_code_type, adj_factor)
+
     assets_today <- sort(unique(c(
       paper_last_eop_weights$cvm_code_type,
       real_last_eop_positions$cvm_code_type,
       target_today$cvm_code_type,
       trades_today$cvm_code_type,
-      splits_today$cvm_code_type
+      splits_today$cvm_code_type,
+      other_events_today$old_cvm_code_type,
+      other_events_today$new_cvm_code_type
     )))
 
     assets_today <- assets_today[!is.na(assets_today)]
@@ -350,7 +360,7 @@ evolve_portfolio <- function(
       )
     }
 
-    #Proventos ------------------------------------------------------------------
+    # Proventos ------------------------------------------------------------------
     all_dates <- returns_long$date %>% unique() %>% sort()
     proventos_today <- returns_long %>%
       dplyr::filter(!is.na(proventos_date)) %>%
@@ -481,6 +491,7 @@ evolve_portfolio <- function(
       asset_ticker_lookup_today = asset_ticker_lookup_today,
       prices_today = prices_today,
       target_today = target_today,
+      other_events_today = other_events_today,
       transaction_costs_bps = transaction_costs_bps,
       daily_fee_return = daily_fee_return,
       allow_missing_returns = allow_missing_returns,
@@ -511,6 +522,7 @@ evolve_portfolio <- function(
       prices_today = prices_today,
       proventos_today = proventos_today,
       splits_today = splits_today,
+      other_events_today = other_events_today,
       trades_today = trades_today,
       target_today = target_today,
       fabricate_trades = !base::startsWith(id, "YMF_"),
@@ -632,6 +644,7 @@ validate_evolve_portfolio_inputs <- function(
     id = NULL,
     fund_name = NULL,
     split_inplit_data = NULL,
+    other_events_data = NULL,
     transaction_costs_bps = NULL,
     fund_fees_bps = 0,
     weight_tolerance = 1e-2,
@@ -1397,6 +1410,68 @@ validate_evolve_portfolio_inputs <- function(
     }
   }
 
+  # Prepare other_events data --------------------------------------------------
+  if (is.null(other_events_data)) {
+    other_events_data <- data.frame(
+      date = as.Date(character()),
+      old_legacy_ticker = character(),
+      old_cvm_code_type = character(),
+      new_legacy_ticker = character(),
+      new_cvm_code_type = character(),
+      adj_factor = numeric(),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    required_other_events_cols <- c("date", "old_cvm_code_type", "new_cvm_code_type", "adj_factor")
+    missing_other_events_cols <- base::setdiff(required_other_events_cols, names(other_events_data))
+    if (length(missing_other_events_cols) > 0L) {
+      stop(
+        "`other_events_data` is missing columns: ",
+        paste(missing_other_events_cols, collapse = ", "),
+        ".",
+        call. = FALSE
+      )
+    }
+    if (!"old_legacy_ticker" %in% names(other_events_data)) {
+      other_events_data$old_legacy_ticker <- NA_character_
+    }
+    if (!"new_legacy_ticker" %in% names(other_events_data)) {
+      other_events_data$new_legacy_ticker <- NA_character_
+    }
+    other_events_data <- other_events_data %>%
+      dplyr::mutate(
+        date = as.Date(date),
+        old_legacy_ticker = as.character(old_legacy_ticker),
+        old_cvm_code_type = as.character(old_cvm_code_type),
+        new_legacy_ticker = as.character(new_legacy_ticker),
+        new_cvm_code_type = as.character(new_cvm_code_type),
+        adj_factor = as.numeric(adj_factor)
+      ) %>%
+      dplyr::filter(date %in% current_dates)
+    if (anyDuplicated(other_events_data[c("date", "old_cvm_code_type", "new_cvm_code_type")]) > 0L) {
+      stop("`other_events_data` has duplicated date + old_cvm_code_type + new_cvm_code_type rows.", call. = FALSE)
+    }
+    if (any(is.na(other_events_data$date))) {
+      stop("`other_events_data$date` contains NA values after coercion.", call. = FALSE)
+    }
+    if (any(is.na(other_events_data$old_cvm_code_type))) {
+      stop("`other_events_data$old_cvm_code_type` contains NA values.", call. = FALSE)
+    }
+    if (any(is.na(other_events_data$new_cvm_code_type))) {
+      stop("`other_events_data$new_cvm_code_type` contains NA values.", call. = FALSE)
+    }
+    if (
+      any(is.na(other_events_data$adj_factor)) ||
+      any(!is.finite(other_events_data$adj_factor)) ||
+      any(other_events_data$adj_factor <= 0, na.rm = TRUE)
+    ) {
+      stop(
+        "`other_events_data$adj_factor` must be positive, finite, and non-missing.",
+        call. = FALSE
+      )
+    }
+  }
+
   # Prepare paper transaction costs ------------------------------------------
 
   if (is.null(transaction_costs_bps)) {
@@ -1485,6 +1560,7 @@ validate_evolve_portfolio_inputs <- function(
     comdinheiro_data = comdinheiro_data,
     trade_data = trade_data,
     split_inplit_data = split_inplit_data,
+    other_events_data = other_events_data,
     transaction_costs_bps = transaction_costs_bps,
     daily_fee_return = daily_fee_return
   )
@@ -2061,6 +2137,7 @@ validate_evolve_portfolio_output <- function(
       "legacy_ticker",
       "cvm_code_type",
       "bop_positions_before_split",
+      "bop_positions_before_other_events",
       "position_factor",
       "bop_positions",
       "price_last_close",
@@ -2089,6 +2166,7 @@ validate_evolve_portfolio_output <- function(
     out$real$portfolio,
     cols = c(
       "bop_positions_before_split",
+      "bop_positions_before_other_events",
       "position_factor",
       "bop_positions",
       "price_last_close",
@@ -2120,6 +2198,7 @@ validate_evolve_portfolio_output <- function(
     out$real$portfolio,
     cols = c(
       "bop_positions_before_split",
+      "bop_positions_before_other_events",
       "position_factor",
       "bop_positions",
       "market_value_last_close",
@@ -2652,6 +2731,7 @@ compute_paper_portfolio_step <- function(
     asset_ticker_lookup_today,
     prices_today,
     target_today,
+    other_events_today,
     transaction_costs_bps,
     daily_fee_return,
     allow_missing_returns = TRUE,
@@ -2708,6 +2788,23 @@ compute_paper_portfolio_step <- function(
       stop(
         "`target_today` is missing column(s): ",
         paste(missing_target_cols, collapse = ", "),
+        ".",
+        call. = FALSE
+      )
+    }
+  }
+
+  required_other_events_cols <- c(
+    "date", "old_legacy_ticker", "old_cvm_code_type",
+    "new_legacy_ticker", "new_cvm_code_type", "adj_factor"
+  )
+  if (nrow(other_events_today) > 0L) {
+    missing_other_events_cols <- base::setdiff(required_other_events_cols, names(other_events_today))
+
+    if (length(missing_other_events_cols) > 0L) {
+      stop(
+        "`other_events_today` is missing column(s): ",
+        paste(missing_other_events_cols, collapse = ", "),
         ".",
         call. = FALSE
       )
@@ -2783,6 +2880,16 @@ compute_paper_portfolio_step <- function(
       weights = as.numeric(weights)
     )
 
+  other_events_today <- other_events_today %>%
+    dplyr::mutate(
+      date = as.Date(date),
+      old_legacy_ticker = as.character(old_legacy_ticker),
+      old_cvm_code_type = as.character(old_cvm_code_type),
+      new_legacy_ticker = as.character(new_legacy_ticker),
+      new_cvm_code_type = as.character(new_cvm_code_type),
+      adj_factor = as.numeric(adj_factor)
+    )
+
 
   # Structural validations ----------------------------------------------------
 
@@ -2850,6 +2957,12 @@ compute_paper_portfolio_step <- function(
     }
   }
 
+  if (nrow(other_events_today) > 0L) {
+    if (anyDuplicated(other_events_today$old_cvm_code_type) > 0L) {
+      stop("`other_events_today` has duplicated `old_cvm_code_type` rows.", call. = FALSE)
+    }
+  }
+
   if (!is.numeric(paper_current_market_value) || length(paper_current_market_value) != 1L ||
       !is.finite(paper_current_market_value) || paper_current_market_value <= 0) {
     stop("`paper_current_market_value` must be a positive finite scalar.", call. = FALSE)
@@ -2864,7 +2977,9 @@ compute_paper_portfolio_step <- function(
 
   paper_assets <- sort(unique(c(
     paper_last_eop_weights$cvm_code_type,
-    target_today$cvm_code_type
+    target_today$cvm_code_type,
+    other_events_today$old_cvm_code_type,
+    other_events_today$new_cvm_code_type
   )))
 
   paper_assets <- paper_assets[!is.na(paper_assets)]
@@ -2907,7 +3022,6 @@ compute_paper_portfolio_step <- function(
   }
 
   # Initialize paper portfolio ------------------------------------------------
-
   paper_portfolio <- data.frame(
     date = as.Date(current_date),
     id = id,
@@ -2918,6 +3032,60 @@ compute_paper_portfolio_step <- function(
   ) %>%
     dplyr::left_join(asset_ticker_lookup_today, by = "cvm_code_type") %>%
     dplyr::select(date, id, fund_name, legacy_ticker, cvm_code_type, bop_weights)
+
+  # Other Events Adjustments----------------------------------------------------
+  if (nrow(other_events_today) > 0L) {
+
+    ### Compute what flows INTO each new ticker, per fund
+    transfers_w <- paper_portfolio %>%
+      dplyr::inner_join(
+        other_events_today,
+        by = c("date",
+               "legacy_ticker" = "old_legacy_ticker",
+               "cvm_code_type" = "old_cvm_code_type")
+      ) %>%
+      dplyr::group_by(date, id, fund_name, new_legacy_ticker, new_cvm_code_type) %>%
+      dplyr::summarise(incoming = sum(bop_weights), .groups = "drop")
+
+    ### Flag old rows, join incoming amounts, and adjust
+    paper_portfolio <- paper_portfolio %>%
+      dplyr::left_join(
+        other_events_today %>%
+          dplyr::distinct(date, old_legacy_ticker, old_cvm_code_type) %>%
+          dplyr::mutate(is_old = TRUE),
+        by = c("date",
+               "legacy_ticker" = "old_legacy_ticker",
+               "cvm_code_type" = "old_cvm_code_type")
+      ) %>%
+      dplyr::left_join(
+        transfers_w,
+        by = c("date", "id", "fund_name",
+               "legacy_ticker" = "new_legacy_ticker",
+               "cvm_code_type" = "new_cvm_code_type")
+      ) %>%
+      dplyr::mutate(
+        bop_weights_before_other_events = bop_weights,
+        is_old                          = dplyr::coalesce(is_old, FALSE),
+        incoming                        = dplyr::coalesce(incoming, 0),
+        bop_weights                     = dplyr::if_else(
+          is_old,
+          0,
+          bop_weights_before_other_events + incoming
+        )
+      ) %>%
+      dplyr::select(-is_old, -incoming) %>%
+      dplyr::relocate(bop_weights, .after = dplyr::last_col())
+
+  } else {
+
+    paper_portfolio <- paper_portfolio %>%
+      dplyr::mutate(
+        bop_weights_before_other_events = bop_weights
+      ) %>%
+      dplyr::relocate(bop_weights, .after = dplyr::last_col())
+
+  }
+
 
   # Add return ----------------------------------------------------------------
 
@@ -3178,6 +3346,7 @@ compute_real_portfolio_step <- function(
     prices_today,
     proventos_today,
     splits_today,
+    other_events_today,
     trades_today,
     target_today = NULL,
     fabricate_trades = FALSE,
@@ -3271,6 +3440,23 @@ compute_real_portfolio_step <- function(
     }
   }
 
+  required_other_events_cols <- c(
+    "date", "old_legacy_ticker", "old_cvm_code_type",
+    "new_legacy_ticker", "new_cvm_code_type", "adj_factor"
+  )
+  if (nrow(other_events_today) > 0L) {
+    missing_other_events_cols <- base::setdiff(required_other_events_cols, names(other_events_today))
+
+    if (length(missing_other_events_cols) > 0L) {
+      stop(
+        "`other_events_today` is missing column(s): ",
+        paste(missing_other_events_cols, collapse = ", "),
+        ".",
+        call. = FALSE
+      )
+    }
+  }
+
   required_trade_cols <- c(
     "cvm_code_type",
     "signed_position",
@@ -3347,6 +3533,16 @@ compute_real_portfolio_step <- function(
       cvm_code_type = as.character(cvm_code_type),
       split_factor = as.numeric(split_factor),
       position_factor = as.numeric(position_factor)
+    )
+
+  other_events_today <- other_events_today %>%
+    dplyr::mutate(
+      date = as.Date(date),
+      old_legacy_ticker = as.character(old_legacy_ticker),
+      old_cvm_code_type = as.character(old_cvm_code_type),
+      new_legacy_ticker = as.character(new_legacy_ticker),
+      new_cvm_code_type = as.character(new_cvm_code_type),
+      adj_factor = as.numeric(adj_factor)
     )
 
   trades_today <- trades_today %>%
@@ -3451,6 +3647,17 @@ compute_real_portfolio_step <- function(
     }
   }
 
+  if (nrow(other_events_today) > 0L) {
+    if (anyDuplicated(other_events_today$old_cvm_code_type) > 0L) {
+      stop("`other_events_today` has duplicated `old_cvm_code_type` rows.", call. = FALSE)
+    }
+
+    if (any(is.na(other_events_today$adj_factor)) || any(!is.finite(other_events_today$adj_factor)) ||
+        any(other_events_today$adj_factor <= 0, na.rm = TRUE)) {
+      stop("`other_events_today$adj_factor` must be positive, finite, and non-missing.", call. = FALSE)
+    }
+  }
+
   if (nrow(trades_today) > 0L) {
     if (any(is.na(trades_today$cvm_code_type))) {
       stop("`trades_today$cvm_code_type` contains NA values.", call. = FALSE)
@@ -3545,6 +3752,8 @@ compute_real_portfolio_step <- function(
     real_last_eop_positions$cvm_code_type,
     splits_today$cvm_code_type,
     trades_today$cvm_code_type,
+    other_events_today$old_cvm_code_type,
+    other_events_today$new_cvm_code_type,
     target_assets
   )))
 
@@ -3665,6 +3874,92 @@ compute_real_portfolio_step <- function(
       stringsAsFactors = FALSE
     )
   }
+
+  # Other Events Adjustments----------------------------------------------------
+
+    ##Eg. 5/7: AXIA6/5 -> AXIA3
+    if (nrow(other_events_today) > 0){
+
+      ### Compute what flows INTO each new ticker, per fund
+      transfers <- real_portfolio %>%
+        dplyr::inner_join(
+          other_events_today,
+          by = c("date",
+                 "legacy_ticker" = "old_legacy_ticker",
+                 "cvm_code_type" = "old_cvm_code_type")
+        ) %>%
+        dplyr::group_by(date, id, fund_name, new_legacy_ticker, new_cvm_code_type) %>%
+        dplyr::summarise(incoming = sum(bop_positions * adj_factor), .groups = "drop")
+
+      ### Flag old rows, join incoming amounts, and adjust
+      real_portfolio <- real_portfolio %>%
+        dplyr::left_join(
+          other_events_today %>%
+            dplyr::distinct(date, old_legacy_ticker, old_cvm_code_type) %>%
+            dplyr::mutate(is_old = TRUE),
+          by = c("date",
+                 "legacy_ticker" = "old_legacy_ticker",
+                 "cvm_code_type" = "old_cvm_code_type")
+        ) %>%
+        dplyr::left_join(
+          transfers,
+          by = c("date", "id", "fund_name",
+                 "legacy_ticker" = "new_legacy_ticker",
+                 "cvm_code_type" = "new_cvm_code_type")
+        ) %>%
+        dplyr::mutate(
+          bop_positions_before_other_events = bop_positions,
+          is_old                            = dplyr::coalesce(is_old, FALSE),
+          incoming                          = dplyr::coalesce(incoming, 0),
+          bop_positions                     = dplyr::case_when(
+            is_old ~ 0,
+            TRUE   ~ bop_positions_before_other_events + incoming
+          )
+        ) %>%
+        dplyr::select(-is_old, -incoming) %>%
+        dplyr::relocate(bop_positions, .after = dplyr::last_col())
+
+      real_other_events_tbl <- other_events_today %>%
+        dplyr::mutate(
+          id = id,
+          fund_name = fund_name_out
+        ) %>%
+        dplyr::select(
+          date,
+          id,
+          fund_name,
+          old_legacy_ticker,
+          old_cvm_code_type,
+          new_legacy_ticker,
+          new_cvm_code_type,
+          adj_factor
+        )
+
+
+    } else {
+
+      real_portfolio <- real_portfolio %>%
+        dplyr::mutate(
+          bop_positions_before_other_events = bop_positions
+        ) %>%
+        dplyr::relocate(bop_positions, .after = dplyr::last_col())
+
+      real_other_events_tbl <- data.frame(
+        date              = as.Date(character()),
+        id                = character(),
+        fund_name         = character(),
+        old_legacy_ticker = character(),
+        old_cvm_code_type = character(),
+        new_legacy_ticker = character(),
+        new_cvm_code_type = character(),
+        adj_factor        = numeric(),
+        stringsAsFactors  = FALSE
+      )
+
+
+    }
+
+
 
   # Price, dividends, and BOP values -----------------------------------------
 
@@ -3897,6 +4192,7 @@ compute_real_portfolio_step <- function(
       cvm_code_type,
       bop_positions_before_split,
       position_factor,
+      bop_positions_before_other_events,
       bop_positions,
       price_last_close,
       market_value_last_close,
@@ -4050,6 +4346,7 @@ compute_real_portfolio_step <- function(
       eop_positions = real_eop_positions_tbl,
       trades = real_trade_tbl,
       splits = real_split_tbl,
+      other_events = real_other_events_tbl,
       portfolio = real_portfolio
     )
   )

@@ -6,6 +6,7 @@ deploy_dados_gold <- function(dados_silver_refreshed, current_dates,
   comdinheiro_data       <- dados_silver_refreshed$comdinheiro_data
   brokerage_data         <- dados_silver_refreshed$brokerage_data
   split_inplit_data      <- dados_silver_refreshed$split_inplit_data
+  other_events_data      <- dados_silver_refreshed$other_events_data
   port_iniciais          <- dados_silver_refreshed$port_iniciais
 
   rebal_weights <- rebalanceamento_tables$rebal_weights
@@ -105,6 +106,7 @@ deploy_dados_gold <- function(dados_silver_refreshed, current_dates,
       fund_name             = fund_name,
       fund_fees_bps         = fund_fees_bps,
       split_inplit_data     = split_inplit_data,
+      other_events_data     = other_events_data,
       allow_missing_returns = TRUE
     )
 

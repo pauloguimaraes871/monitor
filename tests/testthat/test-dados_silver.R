@@ -571,6 +571,7 @@ run_test_dados_silver <- function(dados_silver) {
   brokerage_data <- dados_silver$brokerage_data
   trade_data <- brokerage_data$trade_data
   split_inplit_data <- dados_silver$split_inplit_data
+  other_events_data <- dados_silver$other_events_data
   port_iniciais <- dados_silver$port_iniciais
 
   testthat::test_that("dados_silver has expected top-level structure", {
@@ -775,6 +776,31 @@ run_test_dados_silver <- function(dados_silver) {
 
     missing_combinations_comd <- setdiff(concatenated_ticker_cvm_code_type, comd_combinations)
     testthat::expect_equal(length(missing_combinations_comd), 0L)
+
+
+  })
+
+  testthat::test_that("cvm_code_type of other_events data is present in catalog and comdinheiro_data", {
+    other_events_cvm_types <- unique(other_events_data$old_cvm_code_type)
+    catalog_cvm_types <- unique(catalog$cvm_code_type)
+    comd_cvm_types <- unique(comdinheiro_data$cvm_code_type)
+
+    missing_in_catalog <- setdiff(other_events_cvm_types, catalog_cvm_types)
+    missing_in_comd <- setdiff(other_events_cvm_types, comd_cvm_types)
+
+    testthat::expect_equal(length(missing_in_catalog), 0L, info = paste("Missing in catalog:", paste(missing_in_catalog, collapse = ", ")))
+    testthat::expect_equal(length(missing_in_comd), 0L, info = paste("Missing in comdinheiro_data:", paste(missing_in_comd, collapse = ", ")))
+
+    other_events_cvm_types <- unique(other_events_data$new_cvm_code_type)
+    catalog_cvm_types <- unique(catalog$cvm_code_type)
+    comd_cvm_types <- unique(comdinheiro_data$cvm_code_type)
+
+    missing_in_catalog <- setdiff(other_events_cvm_types, catalog_cvm_types)
+    missing_in_comd <- setdiff(other_events_cvm_types, comd_cvm_types)
+
+    testthat::expect_equal(length(missing_in_catalog), 0L, info = paste("Missing in catalog:", paste(missing_in_catalog, collapse = ", ")))
+    testthat::expect_equal(length(missing_in_comd), 0L, info = paste("Missing in comdinheiro_data:", paste(missing_in_comd, collapse = ", ")))
+
 
 
   })

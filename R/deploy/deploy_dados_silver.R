@@ -31,6 +31,10 @@ deploy_dados_silver <- function(dados_bronze_refreshed, catalog_update, current_
       dados_bronze_batch$split_inplit_data <-
         dados_bronze_batch$split_inplit_data %>%
         dplyr::filter(date %in% current_dates)
+      #### other_events
+      dados_bronze_batch$other_events_data <-
+        dados_bronze_batch$other_events_data %>%
+        dplyr::filter(date %in% current_dates)
       #### ports_iniciais
       if (min(as.Date(list.files(here::here("data", "dev", "rebalancing")), format = "%Y%m%d")) %in%
           current_dates){
@@ -74,6 +78,7 @@ deploy_dados_silver <- function(dados_bronze_refreshed, catalog_update, current_
         brokerage_notes_log = translated_tables$brokerage_notes_log
       ),
       split_inplit_data = dados_bronze_batch$split_inplit_data,
+      other_events_data = dados_bronze_batch$other_events_data,
       port_iniciais     = translated_tables$port_iniciais
     )
 

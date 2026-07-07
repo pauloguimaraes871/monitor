@@ -1,6 +1,7 @@
 run_test_dados_gold <- function(evolved_portfolios, newest_rebal_portfolio_ids,
                                 rebal_weights, comdinheiro_data){
 
+  browser()
   run_validate_evolve_portfolio_inputs_test()
 
   run_split_candidate_helpers_test()
@@ -1137,6 +1138,15 @@ run_compute_paper_portfolio_step_test <- function() {
         weights = numeric(),
         stringsAsFactors = FALSE
       ),
+      other_events_today = data.frame(
+        date = as.Date(character()),
+        old_legacy_ticker = character(),
+        old_cvm_code_type = character(),
+        new_legacy_ticker = character(),
+        new_cvm_code_type = character(),
+        adj_factor = numeric(),
+        stringsAsFactors = FALSE
+      ),
       transaction_costs_bps = data.frame(
         date = as.Date("2026-04-23"),
         id = "strategy_FIA",
@@ -1516,6 +1526,90 @@ run_compute_paper_portfolio_step_test <- function() {
     testthat::expect_equal(sum(out$tables$eop_weights$weights), 1, tolerance = 1e-12)
   })
 
+  testthat::test_that("other_events reallocates bop_weights from old to new ticker (no adj_factor scaling)", {
+    inputs <- build_valid_paper_step_inputs()
+
+    inputs$other_events_today <- data.frame(
+      date = as.Date("2026-04-23"),
+      old_legacy_ticker = "BBB4",
+      old_cvm_code_type = "BBB4",
+      new_legacy_ticker = "AAA3",
+      new_cvm_code_type = "AAA3",
+      adj_factor = 2,
+      stringsAsFactors = FALSE
+    )
+
+    out <- call_step(inputs)
+
+    aaa_row <- out$paper_portfolio[out$paper_portfolio$cvm_code_type == "AAA3", ]
+    bbb_row <- out$paper_portfolio[out$paper_portfolio$cvm_code_type == "BBB4", ]
+
+    testthat::expect_equal(bbb_row$bop_weights_before_other_events, 0.40)
+    testthat::expect_equal(bbb_row$bop_weights, 0)
+
+    # weights use straight sum, adj_factor is NOT applied
+    testthat::expect_equal(aaa_row$bop_weights_before_other_events, 0.60)
+    testthat::expect_equal(aaa_row$bop_weights, 0.60 + 0.40)
+
+    testthat::expect_equal(sum(out$paper_portfolio$bop_weights), 1, tolerance = 1e-12)
+  })
+
+  testthat::test_that("other_events aggregates multiple old tickers merging into the same new ticker for weights", {
+    inputs <- build_valid_paper_step_inputs()
+
+    inputs$paper_last_eop_weights <- data.frame(
+      cvm_code_type = c("AAA3", "BBB4", "CCC3"),
+      eop_weights = c(0.30, 0.30, 0.40),
+      stringsAsFactors = FALSE
+    )
+
+    inputs$asset_ticker_lookup_today <- data.frame(
+      cvm_code_type = c("AAA3", "BBB4", "CCC3"),
+      legacy_ticker = c("AAA3", "BBB4", "CCC3"),
+      stringsAsFactors = FALSE
+    )
+
+    inputs$prices_today <- data.frame(
+      cvm_code_type = c("AAA3", "BBB4", "CCC3"),
+      ret_1d = c(0.01, -0.01, 0.02),
+      stringsAsFactors = FALSE
+    )
+
+    inputs$other_events_today <- data.frame(
+      date = as.Date("2026-04-23"),
+      old_legacy_ticker = c("AAA3", "BBB4"),
+      old_cvm_code_type = c("AAA3", "BBB4"),
+      new_legacy_ticker = c("CCC3", "CCC3"),
+      new_cvm_code_type = c("CCC3", "CCC3"),
+      adj_factor = c(1, 1),
+      stringsAsFactors = FALSE
+    )
+
+    out <- call_step(inputs)
+
+    ccc_row <- out$paper_portfolio[out$paper_portfolio$cvm_code_type == "CCC3", ]
+    aaa_row <- out$paper_portfolio[out$paper_portfolio$cvm_code_type == "AAA3", ]
+    bbb_row <- out$paper_portfolio[out$paper_portfolio$cvm_code_type == "BBB4", ]
+
+    testthat::expect_equal(aaa_row$bop_weights, 0)
+    testthat::expect_equal(bbb_row$bop_weights, 0)
+
+    # incoming = 0.30 + 0.30 = 0.60
+    testthat::expect_equal(ccc_row$bop_weights_before_other_events, 0.40)
+    testthat::expect_equal(ccc_row$bop_weights, 0.40 + 0.60)
+    testthat::expect_equal(sum(out$paper_portfolio$bop_weights), 1, tolerance = 1e-12)
+  })
+
+  testthat::test_that("empty other_events_today leaves bop_weights unchanged", {
+    inputs <- build_valid_paper_step_inputs()
+    out <- call_step(inputs)
+
+    testthat::expect_equal(
+      out$paper_portfolio$bop_weights_before_other_events,
+      out$paper_portfolio$bop_weights
+    )
+  })
+
   invisible(TRUE)
 }
 
@@ -1558,6 +1652,15 @@ run_compute_real_portfolio_step_test <- function() {
         cvm_code_type = character(),
         split_factor = numeric(),
         position_factor = numeric(),
+        stringsAsFactors = FALSE
+      ),
+      other_events_today = data.frame(
+        date = as.Date(character()),
+        old_legacy_ticker = character(),
+        old_cvm_code_type = character(),
+        new_legacy_ticker = character(),
+        new_cvm_code_type = character(),
+        adj_factor = numeric(),
         stringsAsFactors = FALSE
       ),
       trades_today = data.frame(
@@ -1975,6 +2078,120 @@ run_compute_real_portfolio_step_test <- function() {
     testthat::expect_equal(sum(out$tables$eop_positions$weights), 1, tolerance = 1e-12)
   })
 
+  testthat::test_that("other_events reallocates bop_positions from old to new ticker using adj_factor", {
+    inputs <- build_valid_real_step_inputs()
+
+    inputs$other_events_today <- data.frame(
+      date = as.Date("2026-04-23"),
+      old_legacy_ticker = "BBB4",
+      old_cvm_code_type = "BBB4",
+      new_legacy_ticker = "AAA3",
+      new_cvm_code_type = "AAA3",
+      adj_factor = 2,
+      stringsAsFactors = FALSE
+    )
+
+    out <- call_step(inputs)
+
+    aaa_row <- out$real_portfolio[out$real_portfolio$cvm_code_type == "AAA3", ]
+    bbb_row <- out$real_portfolio[out$real_portfolio$cvm_code_type == "BBB4", ]
+
+    # BBB4 (old) is fully zeroed out
+    testthat::expect_equal(bbb_row$bop_positions_before_other_events, 200)
+    testthat::expect_equal(bbb_row$bop_positions, 0)
+
+    # AAA3 (new) receives its own original bop_positions plus incoming * adj_factor
+    testthat::expect_equal(aaa_row$bop_positions_before_other_events, 100)
+    testthat::expect_equal(aaa_row$bop_positions, 100 + 200 * 2)
+
+    testthat::expect_equal(nrow(out$tables$other_events), 1L)
+    testthat::expect_equal(out$tables$other_events$adj_factor, 2)
+  })
+
+  testthat::test_that("other_events aggregates multiple old tickers merging into the same new ticker", {
+    inputs <- build_valid_real_step_inputs()
+
+    inputs$real_last_eop_positions <- data.frame(
+      cvm_code_type = c("AAA3", "BBB4", "CCC3"),
+      eop_positions = c(100, 200, 0),
+      stringsAsFactors = FALSE
+    )
+
+    inputs$asset_ticker_lookup_today <- data.frame(
+      cvm_code_type = c("AAA3", "BBB4", "CCC3"),
+      legacy_ticker = c("AAA3", "BBB4", "CCC3"),
+      stringsAsFactors = FALSE
+    )
+
+    inputs$prices_yesterday <- data.frame(
+      cvm_code_type = c("AAA3", "BBB4", "CCC3"),
+      price_lag = c(10, 20, 15),
+      stringsAsFactors = FALSE
+    )
+
+    inputs$prices_today <- data.frame(
+      cvm_code_type = c("AAA3", "BBB4", "CCC3"),
+      ret_1d = c(0.01, -0.01, 0),
+      price = c(10.1, 19.8, 15),
+      stringsAsFactors = FALSE
+    )
+
+    inputs$other_events_today <- data.frame(
+      date = as.Date("2026-04-23"),
+      old_legacy_ticker = c("AAA3", "BBB4"),
+      old_cvm_code_type = c("AAA3", "BBB4"),
+      new_legacy_ticker = c("CCC3", "CCC3"),
+      new_cvm_code_type = c("CCC3", "CCC3"),
+      adj_factor = c(1, 1.5),
+      stringsAsFactors = FALSE
+    )
+
+    out <- call_step(inputs)
+
+    ccc_row <- out$real_portfolio[out$real_portfolio$cvm_code_type == "CCC3", ]
+    aaa_row <- out$real_portfolio[out$real_portfolio$cvm_code_type == "AAA3", ]
+    bbb_row <- out$real_portfolio[out$real_portfolio$cvm_code_type == "BBB4", ]
+
+    testthat::expect_equal(aaa_row$bop_positions, 0)
+    testthat::expect_equal(bbb_row$bop_positions, 0)
+
+    # incoming = 100 * 1 + 200 * 1.5 = 400
+    testthat::expect_equal(ccc_row$bop_positions_before_other_events, 0)
+    testthat::expect_equal(ccc_row$bop_positions, 400)
+  })
+
+  testthat::test_that("empty other_events_today leaves bop_positions unchanged", {
+    inputs <- build_valid_real_step_inputs()
+    out <- call_step(inputs)
+
+    testthat::expect_equal(
+      out$real_portfolio$bop_positions_before_other_events,
+      out$real_portfolio$bop_positions
+    )
+
+    testthat::expect_equal(nrow(out$tables$other_events), 0L)
+  })
+
+  testthat::test_that("duplicated old_cvm_code_type in other_events_today is blocked", {
+    inputs <- build_valid_real_step_inputs()
+
+    inputs$other_events_today <- data.frame(
+      date = as.Date(c("2026-04-23", "2026-04-23")),
+      old_legacy_ticker = c("BBB4", "BBB4"),
+      old_cvm_code_type = c("BBB4", "BBB4"),
+      new_legacy_ticker = c("AAA3", "CCC3"),
+      new_cvm_code_type = c("AAA3", "CCC3"),
+      adj_factor = c(1, 1),
+      stringsAsFactors = FALSE
+    )
+
+    testthat::expect_error(
+      call_step(inputs),
+      "`other_events_today` has duplicated `old_cvm_code_type` rows.",
+      fixed = TRUE
+    )
+  })
+
   invisible(TRUE)
 }
 
@@ -2025,6 +2242,16 @@ run_compute_real_portfolio_step_fabricated_trades_test <- function() {
       stringsAsFactors = FALSE
     )
 
+    other_events_today = data.frame(
+      date = as.Date(character()),
+      old_legacy_ticker = character(),
+      old_cvm_code_type = character(),
+      new_legacy_ticker = character(),
+      new_cvm_code_type = character(),
+      adj_factor = numeric(),
+      stringsAsFactors = FALSE
+    )
+
     trades_today <- data.frame(
       cvm_code_type = character(),
       signed_position = numeric(),
@@ -2051,6 +2278,7 @@ run_compute_real_portfolio_step_fabricated_trades_test <- function() {
       prices_today = prices_today,
       proventos_today = proventos_today,
       splits_today = splits_today,
+      other_events_today = other_events_today,
       trades_today = trades_today,
       target_today = target_today,
       fabricate_trades = TRUE,

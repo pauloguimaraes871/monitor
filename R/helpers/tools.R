@@ -430,6 +430,11 @@ append_dados_batch <- function(
       new_table = dados_batch$split_inplit_data,
       table_name = "split_inplit_data"
     ),
+    other_events_data = append_batch_table(
+      old_table = old_dados$other_events_data,
+      new_table = dados_batch$other_events_data,
+      table_name = "other_events_data"
+    ),
     port_iniciais     = if (!is.null(dados_batch$port_iniciais)){
       dados_batch$port_iniciais
     } else {
